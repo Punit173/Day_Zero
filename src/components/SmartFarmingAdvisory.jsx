@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FaMicrophone, FaMicrophoneSlash, FaCloudSun, FaBug, FaCalendarAlt } from 'react-icons/fa';
+import { FaMicrophone, FaMicrophoneSlash, FaCloudSun, FaBug, FaCalendarAlt, FaVolumeUp, FaStop } from 'react-icons/fa';
 
 const SmartFarmingAdvisory = () => {
     const [isListening, setIsListening] = useState(false);
@@ -8,28 +8,29 @@ const SmartFarmingAdvisory = () => {
     const [pestData, setPestData] = useState(null);
     const [cropData, setCropData] = useState(null);
     const [transcript, setTranscript] = useState('');
+    const [isSpeaking, setIsSpeaking] = useState(false);
+    const [isUserDone, setIsUserDone] = useState(false);
     const recognitionRef = useRef(null);
+    const speechSynthesisRef = useRef(null);
 
-    // Initialize speech recognition
+    // Initialize speech recognition and synthesis
     useEffect(() => {
         if ('webkitSpeechRecognition' in window) {
             const recognition = new window.webkitSpeechRecognition();
-            recognition.continuous = true;
-            recognition.interimResults = true;
+            recognition.continuous = false;
+            recognition.interimResults = false;
             recognition.lang = 'en-US';
 
             recognition.onresult = (event) => {
-                const transcript = Array.from(event.results)
-                    .map(result => result[0])
-                    .map(result => result.transcript)
-                    .join('');
+                const transcript = event.results[0][0].transcript;
                 setTranscript(transcript);
-                processVoiceCommand(transcript);
+                setIsUserDone(true);
             };
 
             recognition.onerror = (event) => {
                 console.error('Speech recognition error:', event.error);
                 setIsListening(false);
+                speakResponse("Sorry, I couldn't understand that. Could you please repeat?");
             };
 
             recognition.onend = () => {
@@ -45,25 +46,78 @@ const SmartFarmingAdvisory = () => {
             if (recognitionRef.current) {
                 recognitionRef.current.stop();
             }
+            if (speechSynthesisRef.current) {
+                window.speechSynthesis.cancel();
+            }
         };
     }, []);
 
-    // Process voice commands
+    // Process voice command when user is done speaking
+    useEffect(() => {
+        if (isUserDone && transcript) {
+            processVoiceCommand(transcript);
+            setIsUserDone(false);
+        }
+    }, [isUserDone, transcript]);
+
+    // Text to speech function
+    const speakResponse = (text) => {
+        if ('speechSynthesis' in window) {
+            setIsSpeaking(true);
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'en-US';
+            utterance.rate = 1;
+            utterance.pitch = 1;
+
+            utterance.onend = () => {
+                setIsSpeaking(false);
+            };
+
+            window.speechSynthesis.speak(utterance);
+            speechSynthesisRef.current = utterance;
+        }
+    };
+
+    // Stop speaking function
+    const stopSpeaking = () => {
+        if (speechSynthesisRef.current) {
+            window.speechSynthesis.cancel();
+            setIsSpeaking(false);
+        }
+    };
+
+    // Process voice commands with context-aware responses
     const processVoiceCommand = (command) => {
         const lowerCommand = command.toLowerCase();
 
         if (lowerCommand.includes('weather') || lowerCommand.includes('forecast')) {
-            // Focus on weather section
-            document.getElementById('weather-section').scrollIntoView({ behavior: 'smooth' });
+            if (weatherData) {
+                const response = `Current weather conditions: ${weatherData.forecast}. Temperature is ${weatherData.temperature} degrees Celsius with ${weatherData.humidity}% humidity.`;
+                speakResponse(response);
+                document.getElementById('weather-section').scrollIntoView({ behavior: 'smooth' });
+            }
         } else if (lowerCommand.includes('pest') || lowerCommand.includes('insect')) {
-            // Focus on pest section
-            document.getElementById('pest-section').scrollIntoView({ behavior: 'smooth' });
+            if (pestData) {
+                const response = `Pest status: ${pestData.pestLevel} activity detected. ${pestData.recommendedAction}. Mainly affecting ${pestData.affectedCrops.join(' and ')} crops.`;
+                speakResponse(response);
+                document.getElementById('pest-section').scrollIntoView({ behavior: 'smooth' });
+            }
         } else if (lowerCommand.includes('crop') || lowerCommand.includes('harvest')) {
-            // Focus on crop section
-            document.getElementById('crop-section').scrollIntoView({ behavior: 'smooth' });
+            if (cropData) {
+                const response = `Crop advisory: Optimal sowing time is ${cropData.optimalSowingTime}. Expected harvest time is ${cropData.harvestTime}. Recommended crops are ${cropData.recommendedCrops.join(' and ')}.`;
+                speakResponse(response);
+                document.getElementById('crop-section').scrollIntoView({ behavior: 'smooth' });
+            }
         } else if (lowerCommand.includes('refresh') || lowerCommand.includes('update')) {
-            // Refresh all data
             loadData();
+            speakResponse("Refreshing farming data. Please wait a moment.");
+        } else if (lowerCommand.includes('help') || lowerCommand.includes('what can you do')) {
+            const helpResponse = "I can help you with weather forecasts, pest control information, and crop scheduling. Just ask about weather, pests, or crops. You can also say refresh to update the information.";
+            speakResponse(helpResponse);
+        } else if (lowerCommand.includes('hello') || lowerCommand.includes('hi')) {
+            speakResponse("Hello! I'm your smart farming assistant. How can I help you today?");
+        } else {
+            speakResponse("I'm not sure about that. You can ask me about weather, pests, or crops. Or say help to know what I can do.");
         }
     };
 
@@ -117,6 +171,7 @@ const SmartFarmingAdvisory = () => {
         if (recognitionRef.current) {
             recognitionRef.current.start();
             setIsListening(true);
+            speakResponse("I'm listening. Please speak your question.");
         }
     };
 
@@ -124,6 +179,7 @@ const SmartFarmingAdvisory = () => {
         if (recognitionRef.current) {
             recognitionRef.current.stop();
             setIsListening(false);
+            speakResponse("Stopping voice input. You can start again by clicking the microphone button.");
         }
     };
 
@@ -148,24 +204,40 @@ const SmartFarmingAdvisory = () => {
             <h2 className="text-2xl font-bold mb-6 text-green-800">Smart Farming Advisory</h2>
 
             <div className="mb-6">
-                <button
-                    onClick={isListening ? stopListening : startListening}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg ${isListening ? 'bg-red-500' : 'bg-green-500'
-                        } text-white`}
-                >
-                    {isListening ? (
-                        <>
-                            <FaMicrophoneSlash /> Stop Listening
-                        </>
-                    ) : (
-                        <>
-                            <FaMicrophone /> Start Voice Input
-                        </>
+                <div className="flex gap-4">
+                    <button
+                        onClick={isListening ? stopListening : startListening}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg ${isListening ? 'bg-red-500' : 'bg-green-500'
+                            } text-white`}
+                    >
+                        {isListening ? (
+                            <>
+                                <FaMicrophoneSlash /> Stop Listening
+                            </>
+                        ) : (
+                            <>
+                                <FaMicrophone /> Start Voice Input
+                            </>
+                        )}
+                    </button>
+                    {isSpeaking && (
+                        <button
+                            onClick={stopSpeaking}
+                            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500 text-white"
+                        >
+                            <FaStop /> Stop Response
+                        </button>
                     )}
-                </button>
+                </div>
                 {transcript && (
                     <div className="mt-2 p-2 bg-gray-100 rounded">
                         <p className="text-sm text-gray-700">You said: {transcript}</p>
+                    </div>
+                )}
+                {isSpeaking && (
+                    <div className="mt-2 flex items-center gap-2 text-green-600">
+                        <FaVolumeUp />
+                        <span className="text-sm">Speaking...</span>
                     </div>
                 )}
             </div>
@@ -220,10 +292,12 @@ const SmartFarmingAdvisory = () => {
             <div className="mt-4 p-4 bg-gray-100 rounded-lg">
                 <h3 className="font-semibold mb-2">Voice Commands</h3>
                 <ul className="text-sm list-disc list-inside">
-                    <li>Say "weather" or "forecast" to view weather information</li>
-                    <li>Say "pest" or "insect" to view pest control information</li>
-                    <li>Say "crop" or "harvest" to view crop schedule</li>
+                    <li>Say "weather" or "forecast" to get weather information</li>
+                    <li>Say "pest" or "insect" to get pest control information</li>
+                    <li>Say "crop" or "harvest" to get crop schedule</li>
                     <li>Say "refresh" or "update" to reload all data</li>
+                    <li>Say "help" to know what I can do</li>
+                    <li>Say "hello" to start a conversation</li>
                 </ul>
             </div>
         </div>
